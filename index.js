@@ -1,5 +1,6 @@
 require('dotenv').config();
 const dns = require('dns');
+const { promisify } = require('util');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -9,6 +10,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 const urlDatabase = new Map();
 const originalToShort = new Map();
+const lookup = promisify(dns.lookup);
 let currentId = 1;
 
 app.use(cors());
@@ -25,7 +27,7 @@ app.get('/api/hello', function(req, res) {
   res.json({ greeting: 'hello API' });
 });
 
-app.post('/api/shorturl', function(req, res) {
+app.post('/api/shorturl', async function(req, res) {
   const { url } = req.body;
 
   let parsedUrl;
@@ -40,28 +42,28 @@ app.post('/api/shorturl', function(req, res) {
     return res.json({ error: 'invalid url' });
   }
 
-  dns.lookup(parsedUrl.hostname, function(error) {
-    if (error) {
-      return res.json({ error: 'invalid url' });
-    }
-
-    if (originalToShort.has(url)) {
-      return res.json({
-        original_url: url,
-        short_url: originalToShort.get(url)
-      });
-    }
-
-    const shortUrl = currentId;
-    currentId += 1;
-
-    urlDatabase.set(shortUrl, url);
-    originalToShort.set(url, shortUrl);
-
+  if (originalToShort.has(url)) {
     return res.json({
       original_url: url,
-      short_url: shortUrl
+      short_url: originalToShort.get(url)
     });
+  }
+
+  const shortUrl = currentId;
+  currentId += 1;
+
+  try {
+    await lookup(parsedUrl.hostname);
+  } catch (error) {
+    return res.json({ error: 'invalid url' });
+  }
+
+  urlDatabase.set(shortUrl, url);
+  originalToShort.set(url, shortUrl);
+
+  return res.json({
+    original_url: url,
+    short_url: shortUrl
   });
 });
 
